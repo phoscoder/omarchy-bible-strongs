@@ -87,6 +87,28 @@ Panel {
   // avoids rebuilding the RegExp on every result card per keystroke.
   property var highlightCache: ({})
 
+  // --- Strong's numbers (KJV only) -------------------------------------------
+
+  // Toggle for rendering Strong's numbers in the KJV reader. Persisted in
+  // bible-state.json alongside verseOfDay. Off by default: the numbers are
+  // a study aid, not reading typography.
+  property bool strongsNumbers: false
+
+  // Parsed data/strongs-dictionary.json (all H/G entries), or null before
+  // the first load / on failure. Loaded lazily on first toggle-on.
+  property var strongsDictionary: null
+
+  // Parsed data/strongs/kjv/<Book>.json for the book the reader is on (or
+  // null). Keyed to bibleBook; reloaded when the book (or toggle) changes.
+  property var strongsBook: null
+
+  // The Strong's number whose definition card is open ("" when closed).
+  property string strongsPopupNumber: ""
+
+  // Strong's data is only relevant for the KJV reader; the toggle, loads and
+  // rendering all gate on this.
+  readonly property bool strongsActive: root.strongsNumbers && root.translation === "kjv"
+
   readonly property var activeBible: root.translations[root.translation]
   property string bibleBook: ReaderModel.DEFAULT_BOOK
   property int bibleChapter: ReaderModel.DEFAULT_CHAPTER
@@ -216,6 +238,9 @@ Panel {
     // ensureTranslationLoaded is a no-op once the translation is cached.
     root.ensureTranslationLoaded(root.translation)
     root.verseOfDayEnsurePick()
+    // Strong's data loads the same way: only once the panel is actually
+    // open (and only when the toggle is on and the reader is on KJV).
+    if (root.strongsActive) root.ensureStrongsLoaded()
   }
 
   function close() {
@@ -245,6 +270,7 @@ Panel {
     }
     if (tab === "bible") Qt.callLater(function() {
       root.ensureTranslationLoaded(root.translation)
+      if (root.strongsActive) root.ensureStrongsLoaded()
     })
   }
 
@@ -345,6 +371,36 @@ Panel {
       referenceHtml: root.highlightQuery(reference, root.query),
       verseHtml: root.highlightQuery(text, root.query)
     })
+  }
+
+  // Render a Strong's-tagged verse as RichText: each word followed by a tiny
+  // accent-colored superscript of its Strong's number(s), wrapped as <a> so
+  // onLinkActivated carries the number. Words with several numbers
+  // ("fifteen|H7657+H8141+H2568") render one superscript per number.
+  // RichText ignores Text.color, so the word run carries its own <font>;
+  // the verse-number separator uses &nbsp; because rich text collapses
+  // runs of plain spaces.
+  function strongsVerseHtml(verse, tokens, baseColor) {
+    var accent = Color.accent.toString()
+    var out = []
+    out.push('<font color="' + Color.muted.toString() + '">' + verse + "&nbsp;&nbsp;</font>")
+    for (var i = 0; i < tokens.length; i++) {
+      var t = tokens[i]
+      var sep = t.indexOf("|")
+      var word = sep === -1 ? t : t.slice(0, sep)
+      var nums = sep === -1 ? "" : t.slice(sep + 1)
+      out.push('<font color="' + baseColor + '">' + root.escapeHtml(word) + "</font>")
+      if (nums !== "") {
+        var list = nums.split("+")
+        for (var n = 0; n < list.length; n++) {
+          out.push('<a href="' + list[n] + '"><font color="' + accent
+            + '"><sup>' + list[n] + "</sup></font></a> ")
+        }
+      } else {
+        out.push(" ")
+      }
+    }
+    return out.join("")
   }
 
   function runSearch() {
@@ -544,13 +600,14 @@ Panel {
 
   function writeBibleState() {
     var json = ReaderModel.savePlace(root.bibleStateMap || {}, root.translation, root.bibleBook, root.bibleChapter, root.bibleVerse, root.translation)
+    // savePlace rebuilds the map and drops these top-level entries; merge
+    // them back so the day's pick and the Strong's toggle survive a restart.
+    var data = JSON.parse(json)
     if (root.verseOfDay && root.verseOfDay.date !== "") {
-      // savePlace rebuilds the map and drops the verseOfDay entry; merge it
-      // back so the day's pick survives a restart.
-      var data = JSON.parse(json)
       data.verseOfDay = { date: root.verseOfDay.date, reference: root.verseOfDay.reference }
-      json = JSON.stringify(data)
     }
+    data.strongsNumbers = root.strongsNumbers
+    json = JSON.stringify(data)
     bibleStateFile.setText(json)
   }
 
@@ -686,6 +743,145 @@ Panel {
     return false
   }
 
+  // --- Strong's lazy loads ----------------------------------------------------
+
+  // Dictionary FileView: driven by strongsDictionaryToLoad; empty when idle
+  // so no load happens at shell startup (same discipline as translations).
+  // printErrors stays on (unlike the translation view) so a failed Strong's
+  // load is visible in the shell log during bring-up.
+  FileView {
+    id: strongsDictionaryFile
+    path: root.strongsDictionaryToLoad === "" ? ""
+      : Search.fileUrlToPath(Qt.resolvedUrl("data/strongs-dictionary.json"))
+    printErrors: true
+    onLoaded: {
+      var parsed = null
+      try { parsed = JSON.parse(text()) } catch (e) { parsed = null }
+      root.strongsDictionaryToLoad = ""
+      if (parsed && typeof parsed === "object") root.strongsDictionary = parsed
+      else console.warn("bible: strongs dictionary failed to parse")
+    }
+    onLoadFailed: { root.strongsDictionaryToLoad = ""; console.warn("bible: strongs dictionary load failed") }
+  }
+
+  // Tagged-book FileView: loads the file for root.bibleBook when Strong's is
+  // active; a book change (or toggle-off) swaps the path and reloads.
+  FileView {
+    id: strongsBookFile
+    path: root.strongsBookToLoad === "" ? ""
+      : Search.fileUrlToPath(Qt.resolvedUrl("data/strongs/kjv/" + root.strongsBookToLoad + ".json"))
+    printErrors: true
+    onLoaded: {
+      var parsed = null
+      try { parsed = JSON.parse(text()) } catch (e) { parsed = null }
+      // Only store when the answer still matches what was wanted (a stale
+      // answer after a fast book switch is dropped; the newer request's
+      // load follows right behind it).
+      if (parsed && parsed.book === root.strongsBookToLoad) root.strongsBook = parsed
+      else console.warn("bible: strongs book mismatch/parse failed: " + root.strongsBookToLoad)
+      root.strongsBookToLoad = ""
+    }
+    onLoadFailed: {
+      // A failed book load leaves the reader on plain-text fallback.
+      console.warn("bible: strongs book load failed: " + root.strongsBookToLoad)
+      root.strongsBookToLoad = ""
+    }
+  }
+
+  // Path drivers for the two Strong's FileViews (mirrors translationToLoad).
+  property string strongsDictionaryToLoad: ""
+  property string strongsBookToLoad: ""
+
+  // Ensure the dictionary is loaded (idempotent). Called when the toggle
+  // turns on; the ~3MB parse mirrors a translation load.
+  function ensureStrongsDictionaryLoaded() {
+    if (root.strongsDictionary !== null || root.strongsDictionaryToLoad !== "") return
+    root.strongsDictionaryToLoad = "dictionary"
+    strongsDictionaryFile.reload()
+  }
+
+  // Ensure the tagged file for the current book is loaded (idempotent).
+  function ensureStrongsBookLoaded() {
+    if (!root.strongsActive) return
+    if (root.strongsBook !== null && root.strongsBook.book === root.bibleBook) return
+    if (root.strongsBookToLoad === root.bibleBook) return
+    root.strongsBookToLoad = root.bibleBook
+    root.strongsBook = null
+    strongsBookFile.reload()
+  }
+
+  // Tokens for a verse of the current book, or null when Strong's rendering
+  // is unavailable (toggle off, non-KJV, book not yet loaded, or this verse
+  // has no tagged data — the reader then falls back to plain text).
+  function strongsTokensFor(verse) {
+    if (!root.strongsActive || !root.strongsBook) return null
+    if (root.strongsBook.book !== root.bibleBook) return null
+    var ch = root.strongsBook.chapters ? root.strongsBook.chapters[root.bibleChapter - 1] : null
+    if (!ch) return null
+    var tokens = ch[verse - 1]
+    return tokens instanceof Array ? tokens : null
+  }
+
+  // The dictionary entry for a Strong's number, or null.
+  function strongsEntryFor(number) {
+    return root.strongsDictionary ? (root.strongsDictionary[number] || null) : null
+  }
+
+  // Toggle handler: persist the new state and kick the lazy loads (only if
+  // the panel is open; open()/setTab cover the closed case).
+  function setStrongsNumbers(on) {
+    if (root.strongsNumbers === on) return
+    root.strongsNumbers = on
+    if (on && root.opened) root.ensureStrongsLoaded()
+    root.saveBibleStateIfLoaded()
+  }
+
+  // Open the definition card for a Strong's number ("H3068" / "G26"). The
+  // dictionary is normally already loaded (the toggle loaded it before any
+  // number could render); ensure defensively so the card never shows the
+  // no-entry fallback just because a load raced.
+  function openStrongsPopup(number) {
+    if (number === "") return
+    root.ensureStrongsDictionaryLoaded()
+    root.strongsPopupNumber = number
+    strongsPopup.open()
+  }
+
+  function closeStrongsPopup() {
+    strongsPopup.close() // fires closed -> strongsPopupClosed
+  }
+
+  // Idempotent cleanup after the card hides, from any close path (Esc, ✕,
+  // scrim, tab switch, panel close).
+  function strongsPopupClosed() {
+    root.strongsPopupNumber = ""
+    keyCatcher.forceActiveFocus()
+  }
+
+  // Book/translation/toggle changes keep the tagged book in step with the
+  // reader. Gated on root.opened so the startup state restore (which fires
+  // these change handlers before the panel is ever shown) cannot trigger
+  // disk loads — the same lazy discipline as the translation loads.
+  onStrongsActiveChanged: {
+    if (!root.strongsActive) return
+    if (root.opened) root.ensureStrongsLoaded()
+  }
+  onBibleBookChanged: {
+    if (root.strongsActive && root.opened) root.ensureStrongsLoaded()
+    else if (!root.strongsActive) root.strongsBook = null
+  }
+  onTranslationChanged: {
+    if (root.strongsActive && root.opened) root.ensureStrongsLoaded()
+    else if (!root.strongsActive) root.strongsBook = null
+  }
+
+  // Load both Strong's data sets (dictionary + current book) if missing.
+  // Idempotent; called whenever Strong's becomes active with the panel open.
+  function ensureStrongsLoaded() {
+    root.ensureStrongsDictionaryLoaded()
+    root.ensureStrongsBookLoaded()
+  }
+
   // Copy the parsed bible (or null on failure) into the translations map and
   // notify the reader; shared by translationFile.onLoaded/onLoadFailed so the
   // map-copy does not live twice.
@@ -765,6 +961,9 @@ Panel {
       var vod = root.bibleStateMap.verseOfDay
       if (vod && typeof vod === "object" && typeof vod.date === "string" && typeof vod.reference === "string") {
         root.verseOfDay = { date: vod.date, reference: vod.reference }
+      }
+      if (typeof root.bibleStateMap.strongsNumbers === "boolean") {
+        root.strongsNumbers = root.bibleStateMap.strongsNumbers
       }
       var saved = ReaderModel.selectedTranslation(root.bibleStateMap)
       if (saved !== "" && root.isKnownTranslation(saved)) {
@@ -882,7 +1081,13 @@ Panel {
       anchors.fill: parent
       blocked: searchField.activeFocus
         || translationDropdown.popupOpen
-      onCloseRequested: root.close()
+      onCloseRequested: {
+        // The Strong's card is the innermost overlay: Esc closes it before
+        // the panel itself. The popup's scrim does not steal focus, so the
+        // catcher stays the focus owner while the card is open.
+        if (strongsPopup.popupOpen) { root.closeStrongsPopup(); return }
+        root.close()
+      }
       onMoveRequested: function(dx, dy) {
         // Reader navigation gates on search focus, not query text: with text
         // still in the (unfocused) field, arrows must keep paging the reader.
@@ -913,6 +1118,25 @@ Panel {
         anchors.fill: parent
         z: -1
         onPressed: keyCatcher.forceActiveFocus()
+      }
+
+      // Strong's definition card (KJV reader). The card and its scrim
+      // reparent into this keyCatcher as overlays, above the dropdown list.
+      // Esc (keyCatcher.onCloseRequested), the card's ✕, and clicks on the
+      // scrim all funnel into onClosed -> closeStrongsPopup cleanup.
+      StrongsPopup {
+        id: strongsPopup
+        keyCatcher: keyCatcher
+        panel: root
+        barForeground: root.barForeground
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        number: root.strongsPopupNumber
+        // Touch strongsDictionary explicitly: the entry lookup happens
+        // inside a function call, so the binding needs the dependency read
+        // in the binding itself to re-evaluate when the dictionary loads.
+        entry: { root.strongsDictionary; return root.strongsEntryFor(root.strongsPopupNumber) }
+        onClosed: root.strongsPopupClosed()
       }
 
       Row {
@@ -1365,6 +1589,8 @@ Panel {
                 positionLabelPrefix: "v. "
                 showExtraButton: true
                 extraButtonActive: root.bibleMode !== "read"
+                showStrongsButton: root.translation === "kjv"
+                strongsButtonActive: root.strongsNumbers
                 barForeground: root.barForeground
                 foreground: root.foreground
                 fontFamily: root.fontFamily
@@ -1379,6 +1605,7 @@ Panel {
                     root.bibleShowBooks(root.bibleBookMeta && root.bibleBookMeta.testament === "nt" ? "nt" : "ot")
                   }
                 }
+                onStrongsClicked: root.setStrongsNumbers(!root.strongsNumbers)
               }
 
               CenteredCopyFeedback { copyFeedback: root.copyFeedback; fontFamily: root.fontFamily }
@@ -1419,21 +1646,50 @@ Panel {
                   width: bibleVerseList.width
                   height: bibleVerseText.implicitHeight + Style.space(4)
 
+                  // Strong's tokens for this verse, or null (plain-text
+                  // fallback). QML does not capture property reads made
+                  // inside a called function (see the verse-of-day text
+                  // binding), so the dependencies are touched explicitly
+                  // before delegating to strongsTokensFor; the one that
+                  // matters most is strongsBook, which arrives async after
+                  // the delegates already exist.
+                  readonly property var strongsTokens: {
+                    root.strongsNumbers
+                    root.translation
+                    root.strongsBook
+                    root.bibleBook
+                    root.bibleChapter
+                    return root.strongsTokensFor(modelData.verse)
+                  }
+
                   Text {
                     id: bibleVerseText
+                    z: 1 // above the copy MouseArea so RichText links get their clicks
                     width: parent.width
-                    text: modelData.verse + "  " + modelData.text
-                    textFormat: Text.PlainText
-                    color: modelData.verse === root.bibleVerse
+                    // The delegate's plain-text color logic, resolved for the
+                    // rich-text call (RichText ignores Text.color).
+                    readonly property color runColor: modelData.verse === root.bibleVerse
                       ? Color.accent
                       : (modelData.omitted ? Color.muted : Color.foreground)
+                    text: parent.strongsTokens !== null
+                      ? root.strongsVerseHtml(modelData.verse, parent.strongsTokens, runColor.toString())
+                      : modelData.verse + "  " + modelData.text
+                    textFormat: parent.strongsTokens !== null ? Text.RichText : Text.PlainText
+                    color: runColor
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.body
                     font.italic: modelData.omitted
                     lineHeight: 1.5
                     wrapMode: Text.WordWrap
+                    // RichText links (the superscript Strong's numbers) are
+                    // activated here; the copy MouseArea below sits beneath
+                    // and only sees clicks that miss a link.
+                    onLinkActivated: function(link) { root.openStrongsPopup(String(link)) }
                   }
 
+                  // Copy action. Beneath the Text (z:1) so link clicks win;
+                  // clicking anywhere else on the verse still selects, saves
+                  // position, and copies.
                   MouseArea {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
