@@ -20,16 +20,21 @@ Panel {
   // Centered copy-feedback banner plus a fixed spacer, shared by the Bible
   // reader.
   component CenteredCopyFeedback: Column {
-    required property string copyFeedback
-    required property string fontFamily
+    id: centeredCopyFeedback
+    // Defaulted (not required): CopyFeedback below binds during component
+    // construction, before the outer assignment lands, so `required` made
+    // these transiently undefined and produced the
+    // "[undefined] to QString" warnings at Panel.qml:31/32 on every load.
+    property string copyFeedback: ""
+    property string fontFamily: Style.font.family
 
     width: parent.width
     spacing: Style.spacing.sm
 
     CopyFeedback {
       centered: true
-      copyFeedback: CenteredCopyFeedback.copyFeedback
-      fontFamily: CenteredCopyFeedback.fontFamily
+      copyFeedback: centeredCopyFeedback.copyFeedback
+      fontFamily: centeredCopyFeedback.fontFamily
     }
 
     // Guaranteed breathing room between the header and the reader content,
