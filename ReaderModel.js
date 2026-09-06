@@ -15,19 +15,28 @@ var DEFAULT_VERSE = 1
 // Memoized id -> book lookup. Each parsed bible object gets its own map so the
 // O(73) scan in bookById runs once per bible instead of on every caller
 // (formatRef, isValidPlace, chapterCount, verseCount, nextChapter, prevChapter,
-// …). A WeakMap keeps the cache off the bible object (so it is not serialized
-// to the search worker) and lets stale entries collect with their key.
-var _bookByIdCache = new WeakMap()
+// …). The cache is stored as a non-enumerable own property of the bible
+// object: skipped by JSON.stringify (so what goes to the search worker is
+// unchanged), invisible to for-in / Object.keys, and freed with the bible.
+// (A WeakMap was avoided: QV4's WeakMap key lookup has been observed to
+// segfault — QV4::Value::sameValueZero — in quickshell 0.3.1 / Qt 6.11.2.)
+var _bookByIdCacheKey = "_bookByIdCache"
+
+function _setBookByIdCache(bible, map) {
+  Object.defineProperty(bible, _bookByIdCacheKey, {
+    value: map, enumerable: false, writable: true, configurable: true
+  })
+}
 
 function bookById(bible, id) {
   if (!bible || !bible.books) return null
-  var map = _bookByIdCache.get(bible)
+  var map = bible[_bookByIdCacheKey]
   if (map === undefined) {
     map = Object.create(null)
     for (var i = 0; i < bible.books.length; i++) {
       map[bible.books[i].id] = bible.books[i]
     }
-    _bookByIdCache.set(bible, map)
+    _setBookByIdCache(bible, map)
   }
   return map[id] || null
 }
