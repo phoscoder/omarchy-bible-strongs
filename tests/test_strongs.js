@@ -31,6 +31,23 @@ test("dictionary entry counts (8674 Hebrew / 5523 Greek)", () => {
   assert.strictEqual(g, 5523)
 })
 
+test("Greek entries have transliteration and pronunciation", () => {
+  let withXlit = 0, withPron = 0, total = 0
+  for (const key of Object.keys(dict)) {
+    if (key[0] !== "G") continue
+    total++
+    const e = dict[key]
+    assert.strictEqual(typeof e.xlit, "string", key + " xlit missing")
+    assert.ok(e.xlit.trim() !== "", key + " xlit blank")
+    assert.strictEqual(typeof e.pron, "string", key + " pron missing")
+    assert.ok(e.pron.trim() !== "", key + " pron blank")
+    withXlit++; withPron++
+  }
+  assert.strictEqual(total, 5523)
+  assert.strictEqual(withXlit, 5523)
+  assert.strictEqual(withPron, 5523)
+})
+
 test("dictionary key format (H/G + 1-4 digits, no padding)", () => {
   for (const key of Object.keys(dict)) {
     assert.ok(/^[HG]\d{1,4}$/.test(key), "bad key: " + key)
@@ -47,14 +64,19 @@ test("dictionary entries carry lemma and at least one definition field", () => {
   }
 })
 
-test("dictionary spot checks (H1 father, H3068 YHWH, G26 agape, G2316 theos)", () => {
+test("dictionary spot checks (H1 father, H3068 YHWH, G26 agape, G2316 theos, G331 anathema)", () => {
   assert.strictEqual(dict.H1.lemma, "אָב")
   assert.ok(dict.H1.strongs_def.indexOf("father") !== -1)
   assert.strictEqual(dict.H3068.lemma, "יְהֹוָה")
   assert.ok(dict.H3068.strongs_def.indexOf("Jehovah") !== -1)
-  assert.ok(dict.G26.lemma.indexOf("\u1f00\u03b3\u03ac\u03c0\u03b7") !== -1) // ἀγάπη
+  assert.ok(dict.G26.lemma.indexOf("\u1f00\u03b3\u03ac\u03c0\u03b7") !== -1) // \u1f00\u03b3\u03ac\u03c0\u03b7
   assert.ok(dict.G26.strongs_def.indexOf("love") !== -1)
-  assert.strictEqual(dict.G2316.lemma, "\u03b8\u03b5\u03cc\u03c2") // θεός
+  assert.strictEqual(dict.G26.xlit, "agape")
+  assert.strictEqual(dict.G26.pron, "ag-ah'-pay")
+  assert.strictEqual(dict.G2316.lemma, "\u03b8\u03b5\u03cc\u03c2") // \u03b8\u03b5\u03cc\u03c2
+  assert.strictEqual(dict.G331.lemma, "\u1f00\u03bd\u03ac\u03b8\u03b5\u03bc\u03b1")
+  assert.strictEqual(dict.G331.xlit, "anathema")
+  assert.strictEqual(dict.G331.pron, "an-ath'-em-ah")
 })
 
 // --- tagged books ----------------------------------------------------------

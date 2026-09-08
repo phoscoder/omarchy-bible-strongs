@@ -242,17 +242,52 @@ function _wordPart(token) {
 
 // --- dictionary ------------------------------------------------------------
 
-function buildDictionary(dictDir) {
+// Parse the bundled data/strongsgreek.dat ASCII file into a map of
+// G<number> -> {translit, pron}. The file format is:
+//
+//   $$T0000001
+//   \00001\
+//    1  a  al'-fah
+//
+//    of Hebrew origin; ...
+//
+// The header line after the \\NUMBER\\ marker is: "<number>  <translit>  <pron>".
+function parseGreekDat(datPath) {
+  const text = fs.readFileSync(datPath, "utf8")
+  const out = {}
+  // Split on $$T markers; the first chunk is the file preamble.
+  const blocks = text.split(/^\$\$T\d+\s*$/m)
+  for (let i = 1; i < blocks.length; i++) {
+    const block = blocks[i]
+    // Find the backslash-delimited number line.
+    const numMatch = block.match(/^\\0*(\d+)\\\s*$/m)
+    if (!numMatch) continue
+    const num = parseInt(numMatch[1], 10)
+    // The next non-empty line is the transliteration/pronunciation header.
+    const rest = block.slice(numMatch.index + numMatch[0].length)
+    const headerMatch = rest.match(/^\s*(\d+)\s+(\S.*?)\s+(\S.*?)\s*$/m)
+    if (!headerMatch) continue
+    const key = "G" + num
+    out[key] = {
+      translit: headerMatch[2].trim(),
+      pron: headerMatch[3].trim()
+    }
+  }
+  return out
+}
+
+function buildDictionary(dictDir, greekDatPath) {
   const hebrew = require(path.join(dictDir, "hebrew/strongs-hebrew-dictionary.js"))
   const greek = require(path.join(dictDir, "greek/strongs-greek-dictionary.js"))
+  const greekExtras = greekDatPath ? parseGreekDat(greekDatPath) : null
   const out = {}
   let h = 0, g = 0
   for (const key of Object.keys(hebrew)) {
-    out[key] = _cleanEntry(hebrew[key])
+    out[key] = _cleanEntry(hebrew[key], null)
     h++
   }
   for (const key of Object.keys(greek)) {
-    out[key] = _cleanEntry(greek[key])
+    out[key] = _cleanEntry(greek[key], greekExtras ? greekExtras[key] : null)
     g++
   }
   return { entries: out, hebrew: h, greek: g }
@@ -260,13 +295,29 @@ function buildDictionary(dictDir) {
 
 // Keep the display fields; drop null/empty ones to save space. lemma is
 // mandatory (the source always has it); the rest are best-effort.
-function _cleanEntry(entry) {
+function _cleanEntry(entry, greekExtras) {
   const fields = ["lemma", "xlit", "pron", "derivation", "strongs_def", "kjv_def"]
   const o = {}
   if (!entry || typeof entry.lemma !== "string" || entry.lemma.trim() === "") return null
   for (const f of fields) {
     const v = entry[f]
     if (typeof v === "string" && v.trim() !== "") o[f] = v.trim()
+  }
+  // The openscriptures Greek JSON uses 'translit' instead of 'xlit' and has no
+  // pronunciation. The bundled strongsgreek.dat ASCII file supplies both, so
+  // merge them in here so the popup renders Greek words the same way as
+  // Hebrew words (xlit + pron).
+  if (greekExtras) {
+    if (typeof greekExtras.translit === "string" && greekExtras.translit.trim() !== "") {
+      o.xlit = greekExtras.translit.trim()
+    }
+    if (typeof greekExtras.pron === "string" && greekExtras.pron.trim() !== "") {
+      o.pron = greekExtras.pron.trim()
+    }
+  }
+  // Fallback to translit when the JSON uses that field name directly.
+  if (typeof entry.translit === "string" && entry.translit.trim() !== "" && !o.xlit) {
+    o.xlit = entry.translit.trim()
   }
   return o.lemma ? o : null
 }
@@ -347,18 +398,26 @@ function main(argv) {
   const args = argv.slice(2)
   const dictDir = argValue(args, "--dict-dir") || path.join(ROOT, "..", "strongs")
   const taggedPath = argValue(args, "--tagged") || path.join(ROOT, ".tmp-kjv-Strong.raw.json")
+  const greekDatPath = argValue(args, "--greek-dat") || path.join(ROOT, "data", "strongsgreek.dat")
   const kjvPath = path.join(ROOT, "data", "kjv.json")
 
   if (!fs.existsSync(path.join(dictDir, "hebrew"))) {
     console.error("convert-strongs: missing " + dictDir + "/hebrew (pass --dict-dir ../strongs)")
     process.exit(1)
   }
+  if (!fs.existsSync(path.join(dictDir, "greek"))) {
+    console.error("convert-strongs: missing " + dictDir + "/greek (pass --dict-dir ../strongs)")
+    process.exit(1)
+  }
   if (!fs.existsSync(taggedPath)) {
     console.error("convert-strongs: missing " + taggedPath + " (pass --tagged <kjv-Strong json>)")
     process.exit(1)
   }
+  if (!fs.existsSync(greekDatPath)) {
+    console.warn("convert-strongs: missing " + greekDatPath + " — Greek entries will not have transliteration/pronunciation (pass --greek-dat <strongsgreek.dat>)")
+  }
 
-  const dict = buildDictionary(dictDir)
+  const dict = buildDictionary(dictDir, fs.existsSync(greekDatPath) ? greekDatPath : null)
   const dictFile = path.join(ROOT, "data", "strongs-dictionary.json")
   fs.writeFileSync(dictFile, JSON.stringify(dict.entries))
   console.log("wrote " + path.relative(ROOT, dictFile) + " — " +
