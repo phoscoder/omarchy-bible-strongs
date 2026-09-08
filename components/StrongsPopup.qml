@@ -124,6 +124,7 @@ Item {
         color: popup.foreground
         font.family: popup.fontFamily
         font.pixelSize: Style.font.heading
+        horizontalAlignment: Text.AlignRight
         wrapMode: Text.WordWrap
       }
 
