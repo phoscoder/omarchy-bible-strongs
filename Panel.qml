@@ -224,7 +224,7 @@ Panel {
   readonly property string sectionTitle: {
     switch (root.currentTab) {
       case "verse": return "Verse of the Day"
-      case "bible": return "Bible"
+      case "bible": return "Bible (w Strongs)"
     }
   }
 
