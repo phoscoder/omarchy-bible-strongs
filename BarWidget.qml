@@ -9,7 +9,7 @@ import qs.Ui
 // the Liturgy of the Hours widget.
 BarWidget {
   id: root
-  moduleName: "bible"
+  moduleName: "bible-strongs"
 
   Service {
     id: service

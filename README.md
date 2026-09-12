@@ -20,7 +20,7 @@ panel:
 ## Install
 
 ```sh
-omarchy plugin add https://github.com/ronald2wing/Omarchy-Bible --enable
+omarchy plugin add https://github.com/phoscoder/omarchy-bible-strongs --enable
 ```
 
 The plugin is fully offline — no network request is made at runtime.
@@ -98,8 +98,17 @@ on `.pragma library` — expected, not an error.
 ## Remove
 
 ```sh
-omarchy plugin remove bible
+omarchy plugin remove bible-strongs
 ```
+
+## Credits & Fork Notice
+
+This project was forked from
+[ronald2wing/Omarchy-Bible](https://github.com/ronald2wing/Omarchy-Bible).
+Special thanks to [@ronald2wing](https://github.com/ronald2wing) for laying
+the foundation — the original plugin architecture, the Verse of the Day and
+offline reader design, and the bundled translations. This fork extends the
+original with Strong's numbers support in the KJV reader.
 
 ## License
 
