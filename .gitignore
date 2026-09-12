@@ -10,3 +10,6 @@ AGENTS.md
 
 # Node
 node_modules/
+
+# Raw Strong's-tagged KJV source kept locally for scripts/convert-strongs.js
+.tmp-*.json

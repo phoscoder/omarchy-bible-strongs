@@ -46,3 +46,24 @@ Everything is resolved locally — no network request is made at runtime.
 
 - Source: [tehshrike/bible-json](https://github.com/tehshrike/bible-json).
 - The World English Bible (WEB) is in the public domain.
+
+## Strong's Dictionaries and tagged KJV
+
+Two datasets power the Strong's numbers feature in the KJV reader:
+
+- `data/strongs-dictionary.json` is generated from
+  [openscriptures/strongs](https://github.com/openscriptures/strongs) — the
+  Strong's Dictionaries of Hebrew and Greek Words taken from Strong's
+  Exhaustive Concordance (James Strong, 1890/1894). The JSON versions are
+  Copyright 2009–2010 Open Scriptures and licensed **CC-BY-SA 3.0** (see
+  https://creativecommons.org/licenses/by-sa/3.0/). The generated file is a
+  derivative and carries the same CC-BY-SA license. Regenerate with
+  `node scripts/convert-strongs.js --dict-dir ../strongs`.
+- `data/strongs/kjv/*.json` (word→Strong's-number tags for each KJV verse) are
+  generated from a public KJV edition with embedded Strong's numbers and
+  parsing codes (1769 KJV text; the underlying KJV text is public domain).
+  Tags were aligned verse-by-verse against the bundled `data/kjv.json`; the
+  nine verses whose editions genuinely differ (epistolary subscript variants,
+  Joshua 19:2, John 11:2) store `null` and the reader falls back to plain
+  text. `data/kjv.json` itself is never modified by the conversion.
+  Regenerate with `node scripts/convert-strongs.js --tagged <source.json>`.

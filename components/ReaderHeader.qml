@@ -24,11 +24,17 @@ Row {
   // two-button reader header.
   property bool showExtraButton: false
   property bool extraButtonActive: false
+  // Strong's numbers toggle (KJV reader only); a second trailing button
+  // after the ☰ books button. The Bible panel wires it to the
+  // strongsNumbers state.
+  property bool showStrongsButton: false
+  property bool strongsButtonActive: false
 
   signal jump(int target)
   signal prev()
   signal next()
   signal extraClicked()
+  signal strongsClicked()
 
   NavButton {
     id: prevButton
@@ -43,6 +49,7 @@ Row {
   Column {
     width: readerHeader.width - prevButton.width - nextButton.width
       - (readerHeader.showExtraButton ? extraButton.width + readerHeader.spacing : 0)
+      - (readerHeader.showStrongsButton ? strongsButton.width + readerHeader.spacing : 0)
       - readerHeader.spacing * 2
     spacing: Style.spacing.sm
 
@@ -113,5 +120,19 @@ Row {
     large: true
     active: readerHeader.extraButtonActive
     onClicked: readerHeader.extraClicked()
+  }
+
+  // Strong's numbers toggle; the active state (accent color + fill) marks
+  // "numbers visible".
+  NavButton {
+    id: strongsButton
+    barForeground: readerHeader.barForeground
+    foreground: readerHeader.foreground
+    fontFamily: readerHeader.fontFamily
+    visible: readerHeader.showStrongsButton
+    glyph: "S"
+    large: true
+    active: readerHeader.strongsButtonActive
+    onClicked: readerHeader.strongsClicked()
   }
 }

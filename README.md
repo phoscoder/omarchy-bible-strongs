@@ -35,6 +35,14 @@ The plugin is fully offline — no network request is made at runtime.
 - **Bible tab (reader):** with the search box empty, the reader shows. `←`/`→`
   step to the previous/next chapter, `↑`/`↓` move between verses, and `Enter`
   saves the reading position.
+- **Strong's numbers (KJV only):** the reader header shows an **S** button when
+  the translation is the KJV. Toggle it to render tiny superscript Strong's
+  numbers after each word; click a number to open its dictionary card (lemma,
+  transliteration, pronunciation, derivation, Strong's definition, and KJV
+  renderings). `Esc` (or a click outside) closes the card. The toggle is
+  remembered in `bible-state.json`. Verses where the tagged edition could not
+  be aligned fall back to plain text. Data loads lazily — only when the
+  toggle is on.
 - **Clicking** the reader header title/subtitle or the blank space below the
   last verse clears search focus.
 - `Tab` / `Shift+Tab` switches to the neighbouring bar panel.
@@ -62,7 +70,8 @@ Five translations are bundled:
 State is saved under `~/.local/state/omarchy/settings/`:
 
 - `bible-state.json` — the Bible reading position (book/chapter/verse +
-  translation) and the day's verse pick (`verseOfDay`).
+  translation), the day's verse pick (`verseOfDay`), and the Strong's numbers
+  toggle (`strongsNumbers`).
 - `bible-tab-state.json` — the last-opened tab (defaults to Verse on first
   run).
 
@@ -77,8 +86,9 @@ See [NOTICE.md](NOTICE.md) for sources and licensing of the bundled data.
 omarchy plugin validate .
 node tests/test_bibles.js
 node tests/test_canon.js
-node --check search.js SearchWorker.js References.js
-qmllint -I "$OMARCHY_PATH/shell" Panel.qml Service.qml
+node tests/test_strongs.js
+node --check search.js SearchWorker.js References.js scripts/convert-strongs.js
+qmllint -I "$OMARCHY_PATH/shell" Panel.qml Service.qml components/StrongsPopup.qml
 ```
 
 Note: `qmllint` on `BarWidget.qml` may exit 255 due to a Quickshell tooling

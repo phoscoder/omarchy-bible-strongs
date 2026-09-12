@@ -19,12 +19,20 @@ function _hash(str) {
 
 // Memoized flatten of every non-omitted verse reference, keyed on the bible
 // object so repeated picks (and the node tests) enumerate once instead of
-// walking ~31k verses per call.
-var _verseListCache = new WeakMap()
+// walking ~31k verses per call. Stored as a non-enumerable own property of
+// the bible object — same reasoning as the ReaderModel._bookByIdCache (a
+// WeakMap was avoided due to observed QV4 WeakMap-key segfaults).
+var _verseListCacheKey = "_verseListCache"
+
+function _setVerseListCache(bible, list) {
+  Object.defineProperty(bible, _verseListCacheKey, {
+    value: list, enumerable: false, writable: true, configurable: true
+  })
+}
 
 function _verseList(bible) {
   if (!bible || !bible.books) return []
-  var list = _verseListCache.get(bible)
+  var list = bible[_verseListCacheKey]
   if (list !== undefined) return list
   list = []
   for (var i = 0; i < bible.books.length; i++) {
@@ -38,7 +46,7 @@ function _verseList(bible) {
       }
     }
   }
-  _verseListCache.set(bible, list)
+  _setVerseListCache(bible, list)
   return list
 }
 
