@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "id": "bible",
-  "name": "Bible",
-  "version": "1.0.0",
-  "author": "ronald2wing",
+  "id": "bible-strongs",
+  "name": "Bible (With Strongs)",
+  "version": "0.1.0",
+  "author": "phoscoder",
   "license": "MIT",
-  "description": "A bar widget with the Verse of the Day and an offline Bible reader with five selectable translations (DR, CPDV, KJV, WEB, BSB).",
+  "description": "A bar widget with the Verse of the Day and an offline Bible reader with five selectable translations (DR, CPDV, KJV, WEB, BSB) and Strongs support.",
   "keywords": [
     "bible",
     "catholic",
@@ -13,13 +13,15 @@
     "douay-rheims",
     "verse",
     "bsb",
-    "reader"
+    "reader",
+    "strongs",
+    "strongs-concordance"
   ],
   "kinds": ["bar-widget"],
   "entryPoints": { "barWidget": "BarWidget.qml" },
   "barWidget": {
-    "displayName": "Bible",
-    "description": "Verse of the Day and an offline Bible reader with selectable translation",
+    "displayName": "Bible (With Strongs)",
+    "description": "An offline Bible reader that comes with many translations and offers Strongs support. Forked from Omarchy Bible by ronald2wing",
     "category": "Reference",
     "allowMultiple": false,
     "defaultSection": "right"
