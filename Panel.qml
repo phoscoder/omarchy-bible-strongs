@@ -219,7 +219,7 @@ Panel {
   property bool truncated: false       // backend hit its cap (there may be more)
 
   // Attribution appended to copied verses.
-  readonly property string sourceUrl: "https://github.com/ronald2wing/Omarchy-Bible"
+  readonly property string sourceUrl: "https://github.com/phoscoder/omarchy-bible-strongs"
 
   readonly property string sectionTitle: {
     switch (root.currentTab) {
