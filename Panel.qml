@@ -133,11 +133,10 @@ Panel {
 
   readonly property string stateFileHelperPath: Search.fileUrlToPath(Qt.resolvedUrl("bin/omarchy-statefile"))
 
-  // State-file base dir. Canonicalized once at startup (readlink -f) purely as
-  // normalization so the resolved path is what stateFilePath concatenates onto;
-  // it is NOT the security boundary — bin/omarchy-statefile pins the parent dir
-  // and O_NOFOLLOWs the leaf in a single open, so a post-resolution path swap
-  // is refused at read time regardless of what this string holds.
+  // State-file base dir. No canonicalization: the security boundary is
+  // bin/omarchy-statefile itself, which pins every ancestor with
+  // O_NOFOLLOW|O_DIRECTORY (walking from "/") and refuses traversal, so what
+  // this string holds is normalized by the helper at use time.
   property string stateDir: Quickshell.env("HOME") + "/.local/state/omarchy/settings"
 
   // The two state files the panel owns. stateFilePath refuses any other name
@@ -149,24 +148,6 @@ Panel {
   function stateFilePath(name) {
     if (stateFileNames.indexOf(name) === -1) return ""
     return stateDir + "/" + name + ".json"
-  }
-
-  // Resolve symlinks in the state dir chain once at startup so stateFilePath
-  // concatenates onto a canonical base.
-  Process {
-    id: stateDirResolve
-    command: ["readlink", "-f", root.stateDir]
-    stdout: StdioCollector { id: stateDirResolveOut; waitForEnd: true }
-    onExited: function() {
-      var resolved = String(stateDirResolveOut.text || "").trim()
-      if (resolved !== "") root.stateDir = resolved
-      // Load the two state files only after stateDir is canonicalized so the
-      // helpers open the resolved path (onExited also fires when readlink
-      // fails, leaving stateDir at the raw path). Security boundary: see the
-      // stateDir comment above.
-      bibleStateFile.reload()
-      tabStateFile.reload()
-    }
   }
 
   // ---- layout + type tokens -------------------------------------------------
@@ -957,6 +938,7 @@ Panel {
     id: bibleStateFile
     path: root.stateFilePath("bible-state")
     helperPath: root.stateFileHelperPath
+    autoload: true
     onRestored: function(parsed) {
       // ReaderModel.parseState's contract: only a map carrying a `translations`
       // object is accepted, anything else becomes {}. parsed is already the
@@ -1009,6 +991,7 @@ Panel {
     id: tabStateFile
     path: root.stateFilePath("bible-tab-state")
     helperPath: root.stateFileHelperPath
+    autoload: true
     onRestored: function(parsed) {
       root.tabState = parsed === null ? "" : String(parsed.tab || "")
       root.tabStateLoaded = true
@@ -1061,11 +1044,9 @@ Panel {
     // The translation (a ~4.7MB JSON blob) is not parsed here: parsing
     // synchronously on the UI thread stalls first paint. It loads lazily on
     // first visit via ensureTranslationLoaded() in open()/setTab().
-    // Resolve symlinks in the state dir (readlink -f) before the state files
-    // load. The state-file reloads run from stateDirResolve.onExited once the
-    // canonical path is known, so their guards never validate the
-    // un-canonicalized stateDir.
-    stateDirResolve.running = true
+    // The two state files load via their own autoload in StateFile — no
+    // startup readlink pass: bin/omarchy-statefile normalizes the path chain
+    // itself (pinned O_NOFOLLOW ancestors) at each use.
   }
 
   KeyboardPanel {

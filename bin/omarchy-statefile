@@ -1,10 +1,10 @@
-#!/usr/bin/env node
+#!/usr/bin/node
 "use strict"
 // Pinned read/write for the panel's two JSON state files. Check-and-use in
-// one open: O_NOFOLLOW on the leaf, O_DIRECTORY|O_NOFOLLOW on the parent (held
-// via /proc/self/fd), fstat on the opened fd, and read from that same fd.
-// Writes go through a temp file inside the pinned dir and an atomic rename
-// (rename replaces a symlink, never follows it).
+// one open: O_NOFOLLOW on the leaf, O_DIRECTORY|O_NOFOLLOW on every ancestor
+// (pinned via /proc/self/fd), fstat on the opened fd, and read from that same
+// fd. Writes go through a temp file inside the pinned dir and an atomic
+// rename (rename replaces a symlink, never follows it).
 
 const fs = require("fs")
 const path = require("path")
@@ -21,10 +21,58 @@ const ALLOWED_NAMES = new Set([
 
 function refuse(msg) { process.stderr.write((msg || "refused") + "\n"); process.exit(1) }
 
-function pinDir(dir) {
-  return fs.openSync(dir, O.O_RDONLY | O.O_DIRECTORY | O.O_NOFOLLOW)
+// O_NOFOLLOW|O_NONBLOCK everywhere: a symlink at any step is refused rather
+// than followed, and a FIFO/device at any step fails the open instead of
+// blocking.
+const WALK = O.O_RDONLY | O.O_DIRECTORY | O.O_NOFOLLOW | O.O_NONBLOCK
+
+function procPath(fd, name) { return "/proc/self/fd/" + fd + "/" + name }
+
+// Pin every ancestor by walking from "/" so no step ever resolves an
+// ancestor symlink: component i is opened through the pinned fd of
+// component i-1. Missing components are created only through the procfd of
+// the already-pinned parent (mkdir through /proc/self/fd resolves the parent
+// by descriptor, so it cannot escape via a symlink), and every created dir
+// gets 0o700. Intermediates are only required to be pinned directories —
+// ownership/writable checks apply to the final ancestor (the leaf's parent),
+// since system-owned ancestors (/, /home, ...) are expected.
+function pinAncestors(dir, uid) {
+  if (!path.isAbsolute(dir)) refuse("relative path")
+  const parts = dir.split("/").filter(function(p) { return p !== "" })
+  let fd = fs.openSync("/", WALK)
+  try {
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i]
+      if (part === "." || part === "..") refuse("traversal")
+      const last = i === parts.length - 1
+      let next
+      try {
+        next = fs.openSync(procPath(fd, part), WALK)
+      } catch (e) {
+        if (e.code !== "ENOENT") throw e
+        try { fs.mkdirSync(procPath(fd, part), 0o700) } catch (e2) { if (e2.code !== "EEXIST") throw e2 }
+        next = fs.openSync(procPath(fd, part), WALK)
+      }
+      const st = fs.fstatSync(next)
+      // O_DIRECTORY in the flags above already forces ENOTDIR for a
+      // FIFO/device/symlink at this name; this check refuses anything that
+      // is not a pinned directory, and the final ancestor is additionally
+      // required to be owned by us and not group/world-writable.
+      if (!st.isDirectory() || (last && (st.uid !== uid || (st.mode & 0o022) !== 0))) {
+        fs.closeSync(next)
+        refuse("bad dir")
+      }
+      fs.closeSync(fd)
+      fd = next
+    }
+    return fd
+  } catch (e) {
+    try { fs.closeSync(fd) } catch (e2) {}
+    throw e
+  }
 }
-function leafPath(dirFd, name) { return "/proc/self/fd/" + dirFd + "/" + name }
+
+function leafPath(dirFd, name) { return procPath(dirFd, name) }
 
 function main() {
   const mode = process.argv[2]
@@ -33,34 +81,44 @@ function main() {
   const name = path.basename(target)
   if (!ALLOWED_NAMES.has(name)) refuse("bad name")
 
-  // Pin the parent dir before any mkdir, then fstat the pinned fd to validate
-  // it (owned by us, not group/world-writable). If the dir is missing, create
-  // only the final component non-recursively so we never traverse ancestor
-  // symlinks, then pin + validate that result.
+  // Pin the full ancestor chain (every step O_NOFOLLOW'd from "/", creating
+  // only missing final-chain components through pinned fds), then fstat the
+  // pinned fd to validate it (owned by us, not group/world-writable).
   const dir = path.dirname(target)
+  const uid = process.getuid()
   let dirFd
   try {
-    dirFd = pinDir(dir)
+    dirFd = pinAncestors(dir, uid)
   } catch (e) {
-    if (e.code !== "ENOENT") throw e
-    fs.mkdirSync(dir)
-    dirFd = pinDir(dir)
+    if (e.code === "EACCES") refuse("traversal")
+    if (e.code === "ENOTDIR") refuse("traversal")
+    if (e.code === "ELOOP") refuse("traversal")
+    if (e.code === "ENOENT") refuse("bad dir")
+    throw e
   }
   const st = fs.fstatSync(dirFd)
-  if (!st.isDirectory() || st.uid !== process.getuid() || (st.mode & 0o022) !== 0) {
+  if (!st.isDirectory() || st.uid !== uid || (st.mode & 0o022) !== 0) {
     fs.closeSync(dirFd)
     refuse("bad dir")
   }
 
   if (mode === "read") {
     const fd = fs.openSync(leafPath(dirFd, name), O.O_RDONLY | O.O_NOFOLLOW | O.O_NONBLOCK)
-    const st = fs.fstatSync(fd)
-    if (!st.isFile() || st.size > MAX_BYTES) { fs.closeSync(fd); refuse() }
-    const buf = Buffer.alloc(st.size)
-    let off = 0
-    while (off < buf.length) { const n = fs.readSync(fd, buf, off, buf.length - off, off); if (n <= 0) break; off += n }
-    fs.closeSync(fd)
-    process.stdout.write(buf)
+    try {
+      const st = fs.fstatSync(fd)
+      // Check-and-use on the opened fd: regular file, owned by us, not
+      // group/world-writable, at most one link (no hardlink twins), and
+      // within the size cap — all before the first read from this fd.
+      if (!st.isFile() || st.uid !== uid || st.nlink !== 1 || (st.mode & 0o022) !== 0 || st.size > MAX_BYTES) refuse()
+      const buf = Buffer.alloc(st.size)
+      let off = 0
+      while (off < buf.length) { const n = fs.readSync(fd, buf, off, buf.length - off, off); if (n <= 0) break; off += n }
+      if (buf.length === 0) return
+      process.stdout.write(buf)
+      // One trailing newline so a streaming reader's line parser never
+      // holds an unflushed partial line at EOF; JSON.parse tolerates it.
+      process.stdout.write("\n")
+    } finally { fs.closeSync(fd) }
     return
   }
 
