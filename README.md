@@ -75,6 +75,15 @@ State is saved under `~/.local/state/omarchy/settings/`:
 - `bible-tab-state.json` — the last-opened tab (defaults to Verse on first
   run).
 
+All state reads and writes go through `bin/omarchy-statefile`, which requires
+`/usr/bin/node` (the interpreter is pinned; no `env`/PATH lookup happens at
+runtime) and runs the helper with a 5s deadline and a hard cap on its output.
+The helper pins every ancestor directory with `O_NOFOLLOW|O_DIRECTORY` from
+`/` and validates the leaf in the same open (owned by the user, at most one
+link, not group/world-writable, regular file, within the size cap), so
+symlink swaps, hardlink twins, and traversals through symlinked ancestors are
+refused at read time.
+
 The plugin does not request elevated privileges, runs no background services,
 and starts no second Quickshell process.
 
@@ -87,6 +96,7 @@ omarchy plugin validate .
 node tests/test_bibles.js
 node tests/test_canon.js
 node tests/test_strongs.js
+node tests/test_statefile.js
 node --check search.js SearchWorker.js References.js scripts/convert-strongs.js
 qmllint -I "$OMARCHY_PATH/shell" Panel.qml Service.qml components/StrongsPopup.qml
 ```

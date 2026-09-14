@@ -11,5 +11,8 @@ AGENTS.md
 # Node
 node_modules/
 
+# Release tarballs (built locally, never shipped in the repo)
+*.tar.gz
+
 # Raw Strong's-tagged KJV source kept locally for scripts/convert-strongs.js
 .tmp-*.json

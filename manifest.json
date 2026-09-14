@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "bible-strongs",
   "name": "Bible (With Strongs)",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": "phoscoder",
   "license": "MIT",
   "description": "A bar widget with the Verse of the Day and an offline Bible reader with five selectable translations (DR, CPDV, KJV, WEB, BSB) and Strongs support.",
